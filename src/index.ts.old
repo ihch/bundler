@@ -1,0 +1,117 @@
+import { File as BabelFile, Node as BabelNode } from '@babel/types';
+import { parse as babelParse } from '@babel/parser';
+import Traverse from '@babel/traverse';
+import { default as Generator } from '@babel/generator';
+import * as fs from 'fs';
+import { dirname, basename, extname, join } from 'path';
+
+
+const traverse = Traverse.default;
+// const generate = Generator.default;
+
+bundle('./main.js');
+
+
+async function bundle(filepath: string) {
+    const basePath = dirname(filepath);
+    const filename = basename(filepath);
+
+    // エントリーファイルの読み込み
+    const analyzed = await analyzeModule(basePath, filename);
+    console.log(analyzed);
+
+    // 即時実行関数(IIFE)へのバンドル
+    try {
+        bundleToIIFE();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+
+function bundleToIIFE() {
+    throw new Error('Implementation required');
+}
+
+
+function parse(code: string) {
+    return babelParse(code);
+}
+
+
+async function analyzeModule(entryDir: string, entryFilename: string) {
+    console.log(entryDir, entryFilename, isNodeModule(entryFilename));
+    const entryPath = getScriptFilePath(entryDir, `./${entryFilename}`);
+    const code = await readFile(entryPath);
+    const ast = parse(code);
+
+    const imports: {
+        filePath: string;
+        isNodeModule: boolean;
+    }[] = [];
+
+    traverse(ast, {
+        CallExpression({ node: { callee, arguments: args } }) {
+            if (callee.type === "Identifier" && callee.name === "require") {
+                const moduleName = args[0].extra?.rawValue as string;
+                const filePath = getScriptFilePath(entryDir, moduleName);
+                imports.push({ filePath, isNodeModule: isNodeModule(moduleName) });
+            }
+        }
+    });
+
+    const result: { imports: any[] } = {
+        imports: imports.map((filePath: string) => {
+            const basePath = dirname(filePath);
+            const filename = basename(filePath);
+            return analyzeModule(basePath, filename);
+        })
+    }
+
+    return result;
+}
+
+function getFilename(filename: string) {
+    if (filename === '.') {
+        return 'index.js';
+    }
+
+    // 拡張子が明記されていない場合
+    if (extname(filename) === '') {
+        return `${filename}.js`;
+    }
+
+    return filename;
+}
+
+function getScriptFilePath(basePath: string, filename: string) {
+    console.log(filename);
+    if (!isNodeModule(filename)) {
+        return join(basePath, getFilename(filename));
+    }
+
+    // node_modules
+    const moduleBasePath = join(basePath, "node_modules", filename);
+
+    // パッケージ内のモジュールを参照している場合
+    if (filename.includes("/")) {
+        const dir = dirname(moduleBasePath);
+        const name = basename(moduleBasePath);
+
+        return join(dir, getFilename(name));
+    }
+
+    // package.jsonの main プロパティを取得
+    const packageJsonPath = join(moduleBasePath, "package.json");
+    return packageJsonPath;
+}
+
+function isNodeModule(filename: string) {
+    // '~/hoge' みたいなalias貼ってる場合もあるよね
+    return !filename.startsWith('.');
+}
+
+async function readFile(filepath: string): Promise<string> {
+    const raw = fs.readFileSync(filepath, { encoding: 'utf8' });
+    return raw;
+}
