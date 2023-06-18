@@ -29,7 +29,7 @@ export function isNodeModule(fileName: string): boolean {
 export function createModulePathResolver(basePath: string) {
     return {
         getModulePath(fileName: string): string {
-            return join(basePath, fileName);
+            return join(basePath, getFileName(fileName));
         },
 
         getNodeModulePath(fileName: string): string {
